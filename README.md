@@ -152,9 +152,6 @@ lit -v -a ./build/test
 
 ## Benchmarking with llvm-test-suite
 
-> [!WARNING]
-> The benchmarking setup is specifically for the LLVM `TailRecursionElimination` pass provided in this repository. If you are using a different pass, you will need to modify the `benchmark.sh` script accordingly.
-
 The `benchmarking` directory contains scripts and documentation (its [README.md](benchmarking/README.md) file) for benchmarking the `TailRecursionElimination` LLVM pass using the `llvm-test-suite`.
 
 

@@ -25,6 +25,9 @@ from the copy of a lost alchemical treatise attributed to Synesius of Cyrene (37
 [![Apple Silicon][apple-silicon-shield]][apple-silicon]
 [![Apple x86][apple-x86-shield]][apple-x86]
 
+> [!WARNING]
+> The pass is not yet implemented and is currently under active development.
+
 > [!NOTE] 
 > This repository is a fork of [llvm-pass-template](https://github.com/FedericoBruzzone/llvm-pass-template)
 
@@ -45,7 +48,7 @@ int f(int x) {
 
 While GCC successfully optimizes this function, LLVM's current TRE pass fails to eliminate the recursion even at the highest optimization level (-O3), as demonstrated in [Compiler Explorer](https://godbolt.org/z/cP5oYe7K4). This optimization gap results in significant performance penalties, potential stack overflow vulnerabilities for recursive algorithms, and last but not least, the inability to apply other optimizations (e.g., loop optimizations).
 
-Strictly speaking, this function violates the traditional definition of [tail recursion](https://en.wikipedia.org/wiki/Tail_call) due to the multiplication operation occurring after the recursive call. However, leveraging the mathematical properties of commutativity and associativity inherent in multiplication allows us to transform this into an equivalent tail-recursive form:
+Strictly speaking, this function violates the traditional definition of [tail recursion](https://en.wikipedia.org/wiki/Tail_call) due to the multiplication operation occurring after the recursive call. However, leveraging the mathematical properties of commutativity and associativity inherent in multiplication allows us to **see** and **reason** about the function in a different light. While we do not perform this specific transformation in our implementation, recognizing that such a transformation is theoretically possible enables more sophisticated analysis:
 
 ```c
 int f(int x, int acc = 1) {

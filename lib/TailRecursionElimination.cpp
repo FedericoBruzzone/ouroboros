@@ -1,4 +1,6 @@
-//==============================================================================
+//===- TailRecursionElimination.cpp - Eliminate Tail Calls ----------------===//
+// An
+//===----------------------------------------------------------------------===//
 // FILE:
 //    TailRecursionElimination.cpp
 //
@@ -35,11 +37,6 @@ using namespace llvm;
 STATISTIC(NumTailRecursionEliminatable,
           "Number of tail recursive calls that can be eliminated");
 
-// Pretty-prints the result
-static void printTailRecursionEliminationResult(llvm::raw_ostream &OutS,
-                                                const StringRef TODO,
-                                                const StringRef FunctionName);
-
 //------------------------------------------------------------------------------
 // TailRecursionElimination Implementation
 //------------------------------------------------------------------------------
@@ -54,12 +51,17 @@ PreservedAnalyses TailRecursionElimination::run(Function &F,
   return runOnFunction(F);
 }
 
+// Pretty-prints the result
+static void printTailRecursionEliminationResult(llvm::raw_ostream &OutS,
+                                                const StringRef TODO,
+                                                const StringRef FunctionName);
+
+
 PreservedAnalyses
 TailRecursionEliminationPrinter::run(Function &F, FunctionAnalysisManager &AM) {
   printTailRecursionEliminationResult(OS, "TODO", F.getName());
   return PreservedAnalyses::all();
 }
-
 //------------------------------------------------------------------------------
 // New PM Registration
 //------------------------------------------------------------------------------

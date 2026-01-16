@@ -39,7 +39,7 @@ This repository is shipped with:
 - The LLVM pass that can be registered as part of an existing LLVM (both `clang` and `opt`) default pipeline (see [Run the pass against an existing default LLVM pipeline](#run-the-pass-against-an-existing-default-llvm-pipeline) section for more details).
 - A standalone tool (`tre`) to run the **TailRecursionElimination** pass without relying on `opt` (see [Run the pass as executable](#run-the-pass-as-executable) section for more details).
 - A set of unit and regression tests for the **TailRecursionElimination** pass using `llvm-lit` and `FileCheck` (see [Testing](#testing) section for more details).
-- A benchmarking setup using `llvm-test-suite` to measure the performance impact of the **TailRecursionElimination** pass (see [Benchmarking with llvm-test-suite](#benchmarking-with-llvm-test-suite) section for more details).
+- A benchmarking setup using `llvm-test-suite` to measure the performance impact of the **TailRecursionElimination** pass (see [Benchmarking against llvm-test-suite](#benchmarking-against-llvm-test-suite) section for more details).
 
 ## Building the pass
 
@@ -150,9 +150,22 @@ lit -v -a ./build/test
 ```
 
 
-## Benchmarking with llvm-test-suite
+## Benchmarking against llvm-test-suite
 
 The `benchmarking` directory contains scripts and documentation (its [README.md](benchmarking/README.md) file) for benchmarking the `TailRecursionElimination` LLVM pass using the `llvm-test-suite`.
 
 
+## License
 
+This repository is licensed under either of
+
+* [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) with LLVM-exception
+* [MIT License](http://opensource.org/licenses/MIT)
+
+at your option.
+
+Please review the license file provided in the repository for more information regarding the terms and conditions of the license.
+
+## Contact
+
+If you have any questions, suggestions, or feedback, do not hesitate to [contact me](https://federicobruzzone.github.io/).

@@ -1,5 +1,8 @@
 //===- TailRecursionElimination.cpp - Eliminate Tail Calls ----------------===//
-// An
+// Part of the Ouroboros project, under either the Apache License v2.0 with
+// LLVM Exceptions or the MIT license.
+//
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception OR MIT
 //===----------------------------------------------------------------------===//
 // FILE:
 //    TailRecursionElimination.cpp

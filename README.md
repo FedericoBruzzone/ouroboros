@@ -32,6 +32,37 @@ A specialized LLVM pass designed to reimagine **Tail Recursion Elimination** (TR
 Guy L. Steele Jr. in 1977 ([DOI](https://dl.acm.org/doi/10.1145/800179.810196)) observed that certain kinds of function calls, specifically tail calls, can be optimized to avoid increasing the call stack depth — a technique now known as Tail Call Optimization (TCO).
 TRE is a specific form of TCO that focuses on optimizing tail-recursive functions, which are functions that call themselves as their final action.
 
+## Motivation: Why Redesign TRE?
+
+Consider this fundamental example that illustrates the limitations of current TRE implementations:
+
+```c
+int f(int x) {
+    if (x == 1) return x;
+    return 2 * f(x-1);
+}
+```
+
+While GCC successfully optimizes this function, LLVM's current TRE pass fails to eliminate the recursion even at the highest optimization level (-O3), as demonstrated in [Compiler Explorer](https://godbolt.org/z/cP5oYe7K4). This optimization gap results in significant performance penalties, potential stack overflow vulnerabilities for recursive algorithms, and last but not least, the inability to apply other optimizations (e.g., loop optimizations).
+
+Strictly speaking, this function violates the traditional definition of [tail recursion](https://en.wikipedia.org/wiki/Tail_call) due to the multiplication operation occurring after the recursive call. However, leveraging the mathematical properties of commutativity and associativity inherent in multiplication allows us to transform this into an equivalent tail-recursive form:
+
+```c
+int f(int x, int acc = 1) {
+    if (x == 1) return acc;
+    return f(x-1, 2 * acc);
+}
+```
+
+The scope of missed optimization opportunities extends far beyond this simple case. Consider these additional scenarios where existing TRE passes fall short:
+
+- **[Multiple Base Cases](https://godbolt.org/z/MzaTMKd85)**: Functions with complex termination conditions
+- **[Dynamic Stack Growth](https://godbolt.org/z/K15W5nh6n)**: Variable-length arrays (VLAs) where even GCC struggles
+- **Multiple Recursive Calls**: Functions like [Fibonacci](https://godbolt.org/z/1bx8vEbxj) that require advanced transformation techniques
+- **Non-Primitive Recursive Functions**: Complex algorithms such as the [Ackermann function](https://godbolt.org/z/odPGYsbdc)
+
+The challenge of eliminating multiple recursion patterns represents a significantly more complex optimization problem than single tail-call elimination, demanding sophisticated analysis and transformation techniques that we will explore in future iterations of this work.
+
 ## Features
 
 This repository is shipped with:

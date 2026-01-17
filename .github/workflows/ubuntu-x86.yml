@@ -3,7 +3,7 @@ name: Ubuntu x86
 on:
   push:
   pull_request:
-    branches: [master]
+    branches: [main]
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
@@ -34,7 +34,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           mkdir build && cd build
-          cmake -DLLVM_INSTALL_DIR="/usr/lib/llvm-21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} -DLLVM_ENABLE_ASSERTIONS=ON ../
+          cmake -DLLVM_INSTALL_DIR="/usr/lib/llvm-21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} ../
           make -j2
       - name: Run tests
         run: |

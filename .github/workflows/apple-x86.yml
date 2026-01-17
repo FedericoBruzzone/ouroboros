@@ -33,7 +33,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           mkdir build && cd build
-          cmake -DLLVM_INSTALL_DIR="/usr/local/opt/llvm@21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} -DLLVM_ENABLE_ASSERTIONS=ON ../
+          cmake -DLLVM_INSTALL_DIR="/usr/local/opt/llvm@21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} ../
           make -j2
       - name: Run tests
         run: |

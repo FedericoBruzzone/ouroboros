@@ -29,36 +29,128 @@
 #include "TailRecursionElimination.h"
 
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Analysis/OptimizationRemarkEmitter.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstdint>
+#include <llvm/Analysis/InlineCost.h>
+#include <llvm/IR/Analysis.h>
+#include <variant>
 using namespace llvm;
 
 #define DEBUG_TYPE "tailrecelim"
 
-STATISTIC(NumTailRecursionEliminatable,
+STATISTIC(NumTailRecursionEliminable,
           "Number of tail recursive calls that can be eliminated");
 
-//------------------------------------------------------------------------------
-// TailRecursionElimination Implementation
-//------------------------------------------------------------------------------
-PreservedAnalyses TailRecursionElimination::runOnFunction(Function &F) {
-  llvm::errs() << "Unimplemented\n";
-  NumTailRecursionEliminatable = 0;
-  return PreservedAnalyses::all();
+class TailCallMarker {
+  Function &F;
+  OptimizationRemarkEmitter *ORE;
+
+public:
+  explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE) noexcept
+      : F(F), ORE(ORE) {}
+
+  struct NoCalls {};
+  struct SingleCall {};
+  struct MultipleCalls {
+    uint8_t NumCalls;
+  };
+  using Result = std::variant<NoCalls, SingleCall, MultipleCalls>;
+
+  [[nodiscard]] Result markTailCalls() noexcept {
+    // Implementation goes here
+    return NoCalls{};
+  }
+
+  /// \brief A utility for creating an ad-hoc visitor for \c std::variant.
+  ///
+  /// \c VariantVisitor is a variadic template that aggregates multiple callable
+  /// objects (typically lambdas) into a single functional object. This is
+  /// primarily used with \c std::visit to provide a syntax similar to pattern
+  /// matching in functional languages (e.g., Rust's \c match).
+  ///
+  /// \tparam Ts A list of base classes (lambdas or functors) to inherit from.
+  template <class... Ts> struct VariantVisitor : Ts... {
+    /// Bring the call operators of all base classes into the current scope.
+    /// This enables the compiler to perform overload resolution across all
+    /// provided callables when the visitor is invoked.
+    using Ts::operator()...;
+  };
+
+  /// \brief Deduction guide for \c VariantVisitor.
+  ///
+  /// This guide allows the compiler to deduce the template arguments \c Ts from
+  /// the constructor arguments, enabling the instantiation of the visitor
+  /// without explicit template parameters.
+  ///
+  /// \example
+  /// \code
+  ///   std::variant<int, float> V = 42;
+  ///   std::visit(VariantVisitor{
+  ///     [](int I) { /* handle int */ },
+  ///     [](float F) { /* handle float */ }
+  ///   }, V);
+  /// \endcode
+  template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
+};
+
+//===----------------------------------------------------------------------===//
+// TailRecursionElimination Pass Implementation
+//===----------------------------------------------------------------------===//
+PreservedAnalyses
+TailRecursionElimination::runOnFunction(Function &F,
+                                        OptimizationRemarkEmitter &ORE) {
+  if (F.getFnAttribute("disable-tail-calls").getValueAsBool()) {
+    return PreservedAnalyses::all();
+  }
+
+  TailCallMarker Marker(F, &ORE);
+  TailCallMarker::Result MarkerResult = Marker.markTailCalls();
+
+  // Pattern match on analysis result with proper return handling
+  return std::visit(
+      TailCallMarker::VariantVisitor{
+          [&](TailCallMarker::NoCalls) -> PreservedAnalyses {
+            LLVM_DEBUG(dbgs() << "No tail calls found in function "
+                              << F.getName() << "\n");
+            // Early return - no optimization possible
+            return PreservedAnalyses::all();
+          },
+          [&](TailCallMarker::SingleCall SC) -> PreservedAnalyses {
+            LLVM_DEBUG(dbgs() << "Found single tail call in function "
+                              << F.getName() << "\n");
+            // TODO: Implement single tail call optimization
+            llvm::errs()
+                << "Single tail call optimization not yet implemented\n";
+            NumTailRecursionEliminable = 1;
+            return PreservedAnalyses::all();
+          },
+          [&](TailCallMarker::MultipleCalls MC) -> PreservedAnalyses {
+            LLVM_DEBUG(dbgs()
+                       << "Found " << static_cast<int>(MC.NumCalls)
+                       << " tail calls in function " << F.getName() << "\n");
+            // TODO: Implement multiple tail call optimization
+            llvm::errs()
+                << "Multiple tail call optimization not yet implemented\n";
+            NumTailRecursionEliminable = MC.NumCalls;
+            return PreservedAnalyses::all();
+          }},
+      MarkerResult);
 }
 
 PreservedAnalyses TailRecursionElimination::run(Function &F,
-                                                FunctionAnalysisManager &) {
-  return runOnFunction(F);
+                                                FunctionAnalysisManager &AM) {
+  auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+  return runOnFunction(F, ORE);
 }
 
-// Pretty-prints the result
+// Forward declaration for printTailRecursionEliminationResult
 static void printTailRecursionEliminationResult(llvm::raw_ostream &OutS,
                                                 const StringRef TODO,
                                                 const StringRef FunctionName);
-
 
 PreservedAnalyses
 TailRecursionEliminationPrinter::run(Function &F, FunctionAnalysisManager &AM) {

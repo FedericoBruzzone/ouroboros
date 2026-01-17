@@ -30,13 +30,13 @@ jobs:
           sudo apt-get install -y llvm-21 llvm-21-dev llvm-21-tools clang-21
           sudo apt-get install python3-setuptools
           sudo pip3 install lit
-      - name: Build `llvm-pass-template`
+      - name: Build
         run: |
           cd $GITHUB_WORKSPACE
           mkdir build && cd build
-          cmake -DLLVM_INSTALL_DIR="/usr/lib/llvm-21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} ../
+          cmake -DLLVM_INSTALL_DIR="/usr/lib/llvm-21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} -DLLVM_ENABLE_ASSERTIONS=ON ../
           make -j2
-      - name: Run tests for `llvm-pass-template`
+      - name: Run tests
         run: |
           cd $GITHUB_WORKSPACE/build
           lit -va ./test/

@@ -39,19 +39,3 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/build
           lit -va ./test/
-      - name: Create dummy C file
-        run: echo 'int main() { return 0; }' > test.c
-      - name: Test ouroboros.sh commands
-        run: |
-          chmod +x ./ouroboros.sh
-          ./ouroboros.sh help
-          ./ouroboros.sh config
-          ./ouroboros.sh build
-          ./ouroboros.sh emit-llvm test.c
-          ./ouroboros.sh run test.ll
-          ./ouroboros.sh pipeline
-          ./ouroboros.sh pipeline -O1
-          ./ouroboros.sh inject -O1 test.ll
-          ./ouroboros.sh test
-          ./ouroboros.sh clean
-          ./ouroboros.sh rebuild

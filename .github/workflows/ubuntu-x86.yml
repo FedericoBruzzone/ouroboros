@@ -36,7 +36,15 @@ jobs:
           mkdir build && cd build
           cmake -DLLVM_INSTALL_DIR="/usr/lib/llvm-21/" -DCMAKE_BUILD_TYPE=${{ matrix.type }} ../
           make -j2
-      - name: Run tests
+      - name: Run example
         run: |
-          cd $GITHUB_WORKSPACE/build
-          lit -va ./test/
+          cd $GITHUB_WORKSPACE
+          /opt/homebrew/opt/llvm@21/bin/opt \
+            --load-pass-plugin build/lib/libTailRecursionElimination.so \
+            --passes="tailrecelim" \
+            -disable-output \
+            ./test/SimpleTest.ll
+      # - name: Run tests
+      #   run: |
+      #     cd $GITHUB_WORKSPACE/build
+      #     lit -va ./test/

@@ -55,7 +55,7 @@ jobs:
             -DLLVM_ENABLE_ASSERTIONS=ON \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
             ../llvm
-          ninja clang opt lli FileCheck llvm-lit
+          ninja
 
       - name: Save LLVM Cache
         uses: actions/cache/save@v4

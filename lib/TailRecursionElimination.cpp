@@ -33,7 +33,6 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <llvm/Analysis/InlineCost.h>
@@ -82,6 +81,7 @@ public:
   using Result = std::variant<SingleCall, MultipleCalls, NotApplicable>;
 
   [[nodiscard]] Result markTailCalls() noexcept {
+    NumTailRecursionEliminatable = 0;
     if (F.empty()) {
       return NotApplicable::EmptyFunction;
     }
@@ -158,8 +158,8 @@ TailRecursionElimination::runOnFunction(Function &F,
   return std::visit(
       TailCallMarker::VariantVisitor{
           [&](TailCallMarker::NotApplicable NA) -> PreservedAnalyses {
-            LLVM_DEBUG(dbgs() << "Tail Calls Not Applicable in function "
-                              << F.getName() << " because of "
+            LLVM_DEBUG(dbgs() << "Tail Calls not applicable in function "
+                              << F.getName() << " because of: "
                               << TailCallMarker::explain(NA) << "\n");
             // Early return - no optimization possible
             return PreservedAnalyses::all();

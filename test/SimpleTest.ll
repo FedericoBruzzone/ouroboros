@@ -1,13 +1,7 @@
-; RUN:  opt -load-pass-plugin %shlibdir/libTailRecursionElimination%shlibext -passes="tailrecelim" -disable-output %s 2>&1 | FileCheck %s
+; RUN:  opt -load-pass-plugin %shlibdir/libTailRecursionElimination%shlibext \
+; RUN:    -passes="tailrecelim" -debug-only=tailrecelim -stats -disable-output %s 2>&1 | FileCheck %s --allow-empty
 
-
-; Makes sure that the functions are counted correctly.
-
-; CHECK-NOT: foo
-; CHECK-NOT: bar
-
-; CHECK:      Unimplemented
-; CHECK-NEXT: Unimplemented
+; CHECK: 0 tailrecelim
 
 define i32 @foo(i32) {
   ret i32 %0

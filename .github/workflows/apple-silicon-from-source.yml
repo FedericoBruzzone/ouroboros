@@ -14,6 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Ninja
+        run: |
+          git clone --depth 1 https://github.com/ninja-build/ninja.git
+          pushd ninja
+          ./configure.py --bootstrap
+          popd
+          echo "${GITHUB_WORKSPACE}/ninja" >> $GITHUB_PATH
+
+      - name: Clone llvm-project
+        run: |
+          if [ ! -d "llvm-project" ]; then
+            git clone --depth 1 --single-branch --branch release/21.x https://github.com/llvm/llvm-project
+          fi
+
       - name: Restore LLVM Cache
         id: cache-llvm-restore
         uses: actions/cache/restore@v4
@@ -28,20 +42,6 @@ jobs:
           find /usr/local/bin -lname '*/Library/Frameworks/Python.framework/*' -delete
           sudo rm -rf /Library/Frameworks/Python.framework/
           brew install --force python3 && brew unlink python3 && brew link --overwrite python3
-
-      - name: Install Ninja
-        run: |
-          git clone --depth 1 https://github.com/ninja-build/ninja.git
-          pushd ninja
-          ./configure.py --bootstrap
-          popd
-          echo "${GITHUB_WORKSPACE}/ninja" >> $GITHUB_PATH
-
-      - name: Clone llvm-project
-        run: |
-          if [ ! -d "llvm-project" ]; then
-            git clone --depth 1 --single-branch --branch release/18.x https://github.com/llvm/llvm-project
-          fi
 
       - name: Build LLVM
         if: steps.cache-llvm-restore.outputs.cache-hit != 'true'

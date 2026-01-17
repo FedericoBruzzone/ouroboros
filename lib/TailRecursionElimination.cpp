@@ -46,6 +46,37 @@ using namespace llvm;
 STATISTIC(NumTailRecursionEliminatable,
           "Number of tail recursive calls that can be eliminated");
 
+/// \brief A utility for creating an ad-hoc visitor for \c std::variant.
+///
+/// \c VariantVisitor is a variadic template that aggregates multiple callable
+/// objects (typically lambdas) into a single functional object. This is
+/// primarily used with \c std::visit to provide a syntax similar to pattern
+/// matching in functional languages (e.g., Rust's \c match).
+///
+/// \tparam Ts A list of base classes (lambdas or functors) to inherit from.
+template <class... Ts> struct VariantVisitor : Ts... {
+  /// Bring the call operators of all base classes into the current scope.
+  /// This enables the compiler to perform overload resolution across all
+  /// provided callables when the visitor is invoked.
+  using Ts::operator()...;
+};
+
+/// \brief Deduction guide for \c VariantVisitor.
+///
+/// This guide allows the compiler to deduce the template arguments \c Ts from
+/// the constructor arguments, enabling the instantiation of the visitor
+/// without explicit template parameters.
+///
+/// \example
+/// \code
+///   std::variant<int, float> V = 42;
+///   std::visit(VariantVisitor{
+///     [](int I) { /* handle int */ },
+///     [](float F) { /* handle float */ }
+///   }, V);
+/// \endcode
+template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
+
 class TailCallMarker {
   Function &F;
   OptimizationRemarkEmitter *ORE;
@@ -108,37 +139,6 @@ public:
     // Implementation goes here
     return NotApplicable::NoCalls;
   }
-
-  /// \brief A utility for creating an ad-hoc visitor for \c std::variant.
-  ///
-  /// \c VariantVisitor is a variadic template that aggregates multiple callable
-  /// objects (typically lambdas) into a single functional object. This is
-  /// primarily used with \c std::visit to provide a syntax similar to pattern
-  /// matching in functional languages (e.g., Rust's \c match).
-  ///
-  /// \tparam Ts A list of base classes (lambdas or functors) to inherit from.
-  template <class... Ts> struct VariantVisitor : Ts... {
-    /// Bring the call operators of all base classes into the current scope.
-    /// This enables the compiler to perform overload resolution across all
-    /// provided callables when the visitor is invoked.
-    using Ts::operator()...;
-  };
-
-  /// \brief Deduction guide for \c VariantVisitor.
-  ///
-  /// This guide allows the compiler to deduce the template arguments \c Ts from
-  /// the constructor arguments, enabling the instantiation of the visitor
-  /// without explicit template parameters.
-  ///
-  /// \example
-  /// \code
-  ///   std::variant<int, float> V = 42;
-  ///   std::visit(VariantVisitor{
-  ///     [](int I) { /* handle int */ },
-  ///     [](float F) { /* handle float */ }
-  ///   }, V);
-  /// \endcode
-  template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
 };
 
 //===----------------------------------------------------------------------===//
@@ -156,7 +156,7 @@ TailRecursionElimination::runOnFunction(Function &F,
 
   // Pattern match on analysis result with proper return handling
   return std::visit(
-      TailCallMarker::VariantVisitor{
+      VariantVisitor{
           [&](TailCallMarker::NotApplicable NA) -> PreservedAnalyses {
             LLVM_DEBUG(dbgs() << "Tail Calls not applicable in function "
                               << F.getName() << " because of: "

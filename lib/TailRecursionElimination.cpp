@@ -33,16 +33,18 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <llvm/Analysis/InlineCost.h>
 #include <llvm/IR/Analysis.h>
+#include <llvm/IR/Attributes.h>
 #include <variant>
 using namespace llvm;
 
 #define DEBUG_TYPE "tailrecelim"
 
-STATISTIC(NumTailRecursionEliminable,
+STATISTIC(NumTailRecursionEliminatable,
           "Number of tail recursive calls that can be eliminated");
 
 class TailCallMarker {
@@ -53,16 +55,58 @@ public:
   explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE) noexcept
       : F(F), ORE(ORE) {}
 
-  struct NoCalls {};
   struct SingleCall {};
   struct MultipleCalls {
     uint8_t NumCalls;
   };
-  using Result = std::variant<NoCalls, SingleCall, MultipleCalls>;
+  enum class NotApplicable {
+    NoCalls = 0,
+    ReturnsTwice = 1,
+    EmptyFunction = 2,
+    NoReturnInsts = 3,
+  };
+  [[nodiscard]] static inline StringRef explain(NotApplicable Value) noexcept {
+    switch (Value) {
+    case NotApplicable::NoCalls:
+      return "No tail calls found";
+    case NotApplicable::ReturnsTwice:
+      return "Function calls a function that returns twice";
+    case NotApplicable::EmptyFunction:
+      return "Function is empty";
+    case NotApplicable::NoReturnInsts:
+      return "Function has no return instructions";
+    }
+    llvm_unreachable("Invalid NotApplicable value");
+  }
+
+  using Result = std::variant<SingleCall, MultipleCalls, NotApplicable>;
 
   [[nodiscard]] Result markTailCalls() noexcept {
+    if (F.empty()) {
+      return NotApplicable::EmptyFunction;
+    }
+
+    // In the presence of `setjmp` or `longjmp`, tail call elimination is not
+    // possible because the call stack frame must be preserved for non-local
+    // jumps.
+    if (F.callsFunctionThatReturnsTwice()) {
+      return NotApplicable::ReturnsTwice;
+    }
+
+    // Functions with no return instructions cannot have tail calls
+    bool hasReturn = false;
+    for (const BasicBlock &BB : F) {
+      if (isa<ReturnInst>(BB.getTerminator())) {
+        hasReturn = true;
+        break;
+      }
+    }
+    if (!hasReturn) {
+      return NotApplicable::NoReturnInsts;
+    }
+
     // Implementation goes here
-    return NoCalls{};
+    return NotApplicable::NoCalls;
   }
 
   /// \brief A utility for creating an ad-hoc visitor for \c std::variant.
@@ -113,9 +157,10 @@ TailRecursionElimination::runOnFunction(Function &F,
   // Pattern match on analysis result with proper return handling
   return std::visit(
       TailCallMarker::VariantVisitor{
-          [&](TailCallMarker::NoCalls) -> PreservedAnalyses {
-            LLVM_DEBUG(dbgs() << "No tail calls found in function "
-                              << F.getName() << "\n");
+          [&](TailCallMarker::NotApplicable NA) -> PreservedAnalyses {
+            LLVM_DEBUG(dbgs() << "Tail Calls Not Applicable in function "
+                              << F.getName() << " because of "
+                              << TailCallMarker::explain(NA) << "\n");
             // Early return - no optimization possible
             return PreservedAnalyses::all();
           },
@@ -125,7 +170,6 @@ TailRecursionElimination::runOnFunction(Function &F,
             // TODO: Implement single tail call optimization
             llvm::errs()
                 << "Single tail call optimization not yet implemented\n";
-            NumTailRecursionEliminable = 1;
             return PreservedAnalyses::all();
           },
           [&](TailCallMarker::MultipleCalls MC) -> PreservedAnalyses {
@@ -135,7 +179,6 @@ TailRecursionElimination::runOnFunction(Function &F,
             // TODO: Implement multiple tail call optimization
             llvm::errs()
                 << "Multiple tail call optimization not yet implemented\n";
-            NumTailRecursionEliminable = MC.NumCalls;
             return PreservedAnalyses::all();
           }},
       MarkerResult);

@@ -38,7 +38,7 @@ jobs:
       - name: Run example
         run: |
           cd $GITHUB_WORKSPACE
-          /opt/homebrew/opt/llvm@21/bin/opt \
+          /usr/local/opt/llvm@21/bin/opt \
             --load-pass-plugin build/lib/libTailRecursionElimination.dylib \
             --passes="tailrecelim" \
             -disable-output \

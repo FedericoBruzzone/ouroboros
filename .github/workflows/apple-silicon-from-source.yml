@@ -54,9 +54,10 @@ jobs:
           ninja
           # For only the required tools:
           # ninja clang opt lli not FileCheck
-      - name: Add LLVM_DIR to $PATH
+      - name: Set LLVM_DIR environment variable
         run: |
-          echo "LLVM_DIR=${GITHUB_WORKSPACE}/llvm-project/llvm-build/" >> $GITHUB_PATH
+          echo "LLVM_DIR=${GITHUB_WORKSPACE}/llvm-project/llvm-build" >> $GITHUB_ENV
+
       - name: Build
         run: |
           cd $GITHUB_WORKSPACE

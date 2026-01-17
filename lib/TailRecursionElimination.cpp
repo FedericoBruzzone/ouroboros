@@ -79,7 +79,7 @@ template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
 
 class TailCallMarker {
   Function &F;
-  OptimizationRemarkEmitter *ORE;
+  [[maybe_unused]] OptimizationRemarkEmitter *ORE;
 
 public:
   explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE) noexcept
@@ -140,6 +140,7 @@ public:
     return NotApplicable::NoCalls;
   }
 };
+;
 
 //===----------------------------------------------------------------------===//
 // TailRecursionElimination Pass Implementation

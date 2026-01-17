@@ -35,6 +35,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/InlineCost.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/Attributes.h>
@@ -80,9 +81,11 @@ template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
 class TailCallMarker {
   Function &F;
   [[maybe_unused]] OptimizationRemarkEmitter *ORE;
+  [[maybe_unused]] AliasAnalysis *AA;
 
 public:
-  explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE) noexcept
+  explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE,
+                          AliasAnalysis *AA) noexcept
       : F(F), ORE(ORE) {}
 
   struct SingleCall {};
@@ -145,23 +148,24 @@ public:
 //===----------------------------------------------------------------------===//
 // TailRecursionElimination Pass Implementation
 //===----------------------------------------------------------------------===//
-PreservedAnalyses
-TailRecursionElimination::runOnFunction(Function &F,
-                                        OptimizationRemarkEmitter &ORE) {
+PreservedAnalyses TailRecursionElimination::runOnFunction(
+    Function &F, OptimizationRemarkEmitter &ORE, AliasAnalysis &AA) {
   if (F.getFnAttribute("disable-tail-calls").getValueAsBool()) {
     return PreservedAnalyses::all();
   }
 
-  TailCallMarker Marker(F, &ORE);
+  TailCallMarker Marker(F, &ORE, &AA);
   TailCallMarker::Result MarkerResult = Marker.markTailCalls();
 
   // Pattern match on analysis result with proper return handling
   return std::visit(
       VariantVisitor{
           [&](TailCallMarker::NotApplicable NA) -> PreservedAnalyses {
-            LLVM_DEBUG(dbgs() << "Tail Calls not applicable in function "
-                              << F.getName() << " because of: "
-                              << TailCallMarker::explain(NA) << "\n");
+            LLVM_DEBUG(
+                dbgs()
+                << "Tail Recursion Elimination not applicable in function "
+                << "`" << F.getName() << "`"
+                << " because of: " << TailCallMarker::explain(NA) << "\n");
             // Early return - no optimization possible
             return PreservedAnalyses::all();
           },
@@ -187,8 +191,10 @@ TailRecursionElimination::runOnFunction(Function &F,
 
 PreservedAnalyses TailRecursionElimination::run(Function &F,
                                                 FunctionAnalysisManager &AM) {
-  auto &ORE = AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
-  return runOnFunction(F, ORE);
+  OptimizationRemarkEmitter &ORE =
+      AM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+  AliasAnalysis &AA = AM.getResult<AAManager>(F);
+  return runOnFunction(F, ORE, AA);
 }
 
 // Forward declaration for printTailRecursionEliminationResult

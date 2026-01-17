@@ -44,7 +44,7 @@ jobs:
             --passes="tailrecelim" \
             -disable-output \
             ./test/SimpleTest.ll
-      # - name: Run tests
-      #   run: |
-      #     cd $GITHUB_WORKSPACE/build
-      #     lit -va ./test/
+      - name: Run a single test
+        run: |
+          cd $GITHUB_WORKSPACE/build
+          lit -va ./test/SimpleTest.ll

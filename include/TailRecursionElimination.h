@@ -15,6 +15,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/Analysis/AliasAnalysis.h>
 #include <llvm/Analysis/OptimizationRemarkEmitter.h>
 
 namespace llvm {
@@ -26,7 +27,8 @@ class TailRecursionElimination
 public:
   TailRecursionElimination() = default;
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
-  PreservedAnalyses runOnFunction(Function &F, OptimizationRemarkEmitter &ORE);
+  PreservedAnalyses runOnFunction(Function &F, OptimizationRemarkEmitter &ORE,
+                                  AliasAnalysis &AA);
 };
 
 class TailRecursionEliminationPrinter

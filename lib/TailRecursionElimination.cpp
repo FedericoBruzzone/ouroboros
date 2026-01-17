@@ -79,14 +79,15 @@ template <class... Ts> struct VariantVisitor : Ts... {
 template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
 
 class TailCallMarker {
-  Function &F;
-  [[maybe_unused]] OptimizationRemarkEmitter *ORE;
-  [[maybe_unused]] AliasAnalysis *AA;
+  const Function &F;
+  [[maybe_unused]] OptimizationRemarkEmitter *const ORE;
+  [[maybe_unused]] AliasAnalysis *const AA;
 
 public:
-  explicit TailCallMarker(Function &F, OptimizationRemarkEmitter *ORE,
-                          AliasAnalysis *AA) noexcept
-      : F(F), ORE(ORE) {}
+  explicit TailCallMarker(const Function &F,
+                          OptimizationRemarkEmitter *const ORE,
+                          AliasAnalysis *const AA) noexcept
+      : F(F), ORE(ORE), AA(AA) {}
 
   struct SingleCall {};
   struct MultipleCalls {

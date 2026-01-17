@@ -1,0 +1,69 @@
+name: Apple Silicon - LLVM From Source
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v2
+      - name: Unbreak Python in Github Actions
+        # See:
+        #   * https://github.com/actions/runner-images/issues/2322
+        #   * https://github.com/libui-ng/libui-ng/commit/97d9601e74fadea1f8d1869c77acbe24be2886e2
+        run: |
+          find /usr/local/bin -lname '*/Library/Frameworks/Python.framework/*' -delete
+          sudo rm -rf /Library/Frameworks/Python.framework/
+          brew install --force python3 && brew unlink python3 && brew unlink python3 && brew link --overwrite python3
+      - name: Download Ninja
+        run: |
+          git clone https://github.com/ninja-build/ninja.git
+          pushd ninja
+          ./configure.py --bootstrap
+          popd
+      - name: Add Ninja to $PATH
+        run: |
+          echo "${GITHUB_WORKSPACE}/ninja" >> $GITHUB_PATH
+      - name: Clone llvm-project
+        run: |
+          git clone --depth 1 --single-branch --branch release/21.x https://github.com/llvm/llvm-project
+      - name: Cache LLVM build
+        uses: actions/cache@v3
+        with:
+          path: llvm-project/llvm-build
+          key: llvm-build-${{ runner.os }}-${{ hashFiles('llvm-project/llvm/CMakeLists.txt') }}
+          restore-keys: |
+            llvm-build-${{ runner.os }}-
+      - name: Build LLVM
+        run: |
+          cd llvm-project
+          mkdir -p llvm-build && cd llvm-build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="host;X86" \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            ../llvm
+          ninja
+          # For only the required tools:
+          # ninja clang opt lli not FileCheck
+      - name: Add LLVM_DIR to $PATH
+        run: |
+          echo "LLVM_DIR=${GITHUB_WORKSPACE}/llvm-project/llvm-build/" >> $GITHUB_PATH
+      - name: Build
+        run: |
+          cd $GITHUB_WORKSPACE
+          mkdir build && cd build
+          cmake -G Ninja -DLLVM_INSTALL_DIR=${LLVM_DIR} -DLLVM_ENABLE_ASSERTIONS=ON ../
+          ninja
+      - name: Run tests
+        run: |
+          cd $GITHUB_WORKSPACE/build
+          ${LLVM_DIR}/bin/llvm-lit -va ./test/

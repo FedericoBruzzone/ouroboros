@@ -1,3 +1,8 @@
+; RUN:  opt -load-pass-plugin %shlibdir/libTailRecursionElimination%shlibext \
+; RUN:    -passes="tailrecelim" -debug-only=tailrecelim -stats -disable-output %s 2>&1 \
+; RUN:    | FileCheck %s --allow-empty
+
+; CHECK: 0 tailrecelim
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define i32 @f(i32 noundef %x) #0 {

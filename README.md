@@ -28,7 +28,7 @@ from the copy of a lost alchemical treatise attributed to Synesius of Cyrene (37
 > [!WARNING]
 > The pass is not yet implemented and is currently under active development.
 
-> [!NOTE] 
+> [!NOTE]
 > This repository is a fork of [llvm-pass-template](https://github.com/FedericoBruzzone/llvm-pass-template)
 
 A specialized LLVM pass designed to reimagine **Tail Recursion Elimination** (TRE) through an out-of-tree implementation.
@@ -69,6 +69,7 @@ The challenge of eliminating multiple recursion patterns represents a significan
 ## Features
 
 This repository is shipped with:
+
 - The LLVM pass plugin that can be loaded into the `opt` tool (see [Run the pass with `opt`](#run-the-pass-with-opt) section for more details).
 - The LLVM pass that can be registered as part of an existing LLVM (both `clang` and `opt`) default pipeline (see [Run the pass against an existing default LLVM pipeline](#run-the-pass-against-an-existing-default-llvm-pipeline) section for more details).
 - A standalone tool (`tre`) to run the **TailRecursionElimination** pass without relying on `opt` (see [Run the pass as executable](#run-the-pass-as-executable) section for more details).
@@ -79,6 +80,7 @@ This repository is shipped with:
 
 The [GUIDELINES.md](GUIDELINES.md) file includes detailed instructions on how to set up the system to have an LLVM 21 installation, and how to set the `LLVM_DIR` environment variable accordingly.
 For instance:
+
 ```bash
 export LLVM_DIR=/usr/local/opt/llvm@21 # macOS Intel via Homebrew
 export LLVM_DIR=/opt/homebrew/opt/llvm@21 # macOS Apple Silicon via Homebrew
@@ -121,7 +123,7 @@ ${LLVM_DIR}/bin/opt \
 ## Run the pass against an existing default LLVM pipeline
 
 > [!NOTE]
-> This section assume that your pass is registered as a step of an existing LLVM pipeline. 
+> This section assume that your pass is registered as a step of an existing LLVM pipeline.
 > To do so, you need to register your pass within the `getTailRecursionEliminationPluginInfo()` function by using, for instance, `PB.registerPipelineStartEPCallback` which registers your pass at the start of a default pipeline.
 > Of course, there are a plethora of other registration methods you can use depending on where you want to insert your pass within the pipeline.
 > The [TailRecursionElimination.cpp](lib/TailRecursionElimination.cpp) file registers the **TailRecursionElimination** pass by using `PB.registerVectorizerStartEPCallback` as an example.
@@ -183,18 +185,16 @@ To run the tests, execute the following command from the root of the repository:
 lit -v -a ./build/test
 ```
 
-
 ## Benchmarking against llvm-test-suite
 
 The `benchmarking` directory contains scripts and documentation (its [README.md](benchmarking/README.md) file) for benchmarking the `TailRecursionElimination` LLVM pass using the `llvm-test-suite`.
-
 
 ## License
 
 This repository is licensed under either of
 
-* [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) with LLVM-exception
-* [MIT License](http://opensource.org/licenses/MIT)
+- [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0) with LLVM-exception
+- [MIT License](http://opensource.org/licenses/MIT)
 
 at your option.
 

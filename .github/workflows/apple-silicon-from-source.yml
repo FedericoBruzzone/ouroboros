@@ -12,35 +12,39 @@ jobs:
   build:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v2
-      - name: Unbreak Python in Github Actions
-        # See:
-        #   * https://github.com/actions/runner-images/issues/2322
-        #   * https://github.com/libui-ng/libui-ng/commit/97d9601e74fadea1f8d1869c77acbe24be2886e2
+      - uses: actions/checkout@v4
+
+      - name: Restore LLVM Cache
+        id: cache-llvm-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: llvm-project/llvm-build
+          key: ${{ runner.os }}-llvm-${{ hashFiles('llvm-project/llvm/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-llvm-
+
+      - name: Unbreak Python
         run: |
           find /usr/local/bin -lname '*/Library/Frameworks/Python.framework/*' -delete
           sudo rm -rf /Library/Frameworks/Python.framework/
-          brew install --force python3 && brew unlink python3 && brew unlink python3 && brew link --overwrite python3
-      - name: Download Ninja
+          brew install --force python3 && brew unlink python3 && brew link --overwrite python3
+
+      - name: Install Ninja
         run: |
-          git clone https://github.com/ninja-build/ninja.git
+          git clone --depth 1 https://github.com/ninja-build/ninja.git
           pushd ninja
           ./configure.py --bootstrap
           popd
-      - name: Add Ninja to $PATH
-        run: |
           echo "${GITHUB_WORKSPACE}/ninja" >> $GITHUB_PATH
+
       - name: Clone llvm-project
         run: |
-          git clone --depth 1 --single-branch --branch release/21.x https://github.com/llvm/llvm-project
-      - name: Cache LLVM build
-        uses: actions/cache@v3
-        with:
-          path: llvm-project/llvm-build
-          key: llvm-build-${{ runner.os }}-${{ hashFiles('llvm-project/llvm/CMakeLists.txt') }}
-          restore-keys: |
-            llvm-build-${{ runner.os }}-
+          if [ ! -d "llvm-project" ]; then
+            git clone --depth 1 --single-branch --branch release/18.x https://github.com/llvm/llvm-project
+          fi
+
       - name: Build LLVM
+        if: steps.cache-llvm-restore.outputs.cache-hit != 'true'
         run: |
           cd llvm-project
           mkdir -p llvm-build && cd llvm-build
@@ -51,20 +55,25 @@ jobs:
             -DLLVM_ENABLE_ASSERTIONS=ON \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
             ../llvm
-          ninja
-          # For only the required tools:
-          # ninja clang opt lli not FileCheck
-      - name: Set LLVM_DIR environment variable
-        run: |
-          echo "LLVM_DIR=${GITHUB_WORKSPACE}/llvm-project/llvm-build" >> $GITHUB_ENV
+          ninja clang opt lli FileCheck llvm-lit
 
-      - name: Build
+      - name: Save LLVM Cache
+        uses: actions/cache/save@v4
+        if: steps.cache-llvm-restore.outputs.cache-hit != 'true'
+        with:
+          path: llvm-project/llvm-build
+          key: ${{ steps.cache-llvm-restore.outputs.cache-primary-key }}
+
+      - name: Set LLVM_DIR
+        run: echo "LLVM_DIR=${GITHUB_WORKSPACE}/llvm-project/llvm-build" >> $GITHUB_ENV
+
+      - name: Build Project
         run: |
-          cd $GITHUB_WORKSPACE
-          mkdir build && cd build
-          cmake -G Ninja -DLLVM_INSTALL_DIR=${LLVM_DIR} -DLLVM_ENABLE_ASSERTIONS=ON ../
+          mkdir -p build && cd build
+          cmake -G Ninja -DLLVM_INSTALL_DIR=${{ env.LLVM_DIR }} -DLLVM_ENABLE_ASSERTIONS=ON ../
           ninja
+
       - name: Run tests
         run: |
-          cd $GITHUB_WORKSPACE/build
-          ${LLVM_DIR}/bin/llvm-lit -va ./test/
+          cd build
+          ${{ env.LLVM_DIR }}/bin/llvm-lit -va ./test/

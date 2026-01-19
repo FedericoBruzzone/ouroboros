@@ -34,49 +34,172 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdint>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/Analysis/AliasAnalysis.h>
+#include <llvm/Analysis/CaptureTracking.h>
 #include <llvm/Analysis/InlineCost.h>
 #include <llvm/IR/Analysis.h>
 #include <llvm/IR/Attributes.h>
-#include <variant>
+#include <llvm/IR/Instruction.h>
 using namespace llvm;
 
 #define DEBUG_TYPE "tailrecelim"
 
-STATISTIC(NumTailRecursionEliminatable,
-          "Number of tail recursive calls that can be eliminated");
+STATISTIC(NumAllocaUsers, "Number of alloca users tracked");
+STATISTIC(NumEscapedInstructions, "Number of escaped instructions tracked");
+STATISTIC(NumCallsMarkedWithTailAttr,
+          "Number of calls marked with the `tail` attribute");
 
-/// \brief A utility for creating an ad-hoc visitor for \c std::variant.
-///
-/// \c VariantVisitor is a variadic template that aggregates multiple callable
-/// objects (typically lambdas) into a single functional object. This is
-/// primarily used with \c std::visit to provide a syntax similar to pattern
-/// matching in functional languages (e.g., Rust's \c match).
-///
-/// \tparam Ts A list of base classes (lambdas or functors) to inherit from.
-template <class... Ts> struct VariantVisitor : Ts... {
-  /// Bring the call operators of all base classes into the current scope.
-  /// This enables the compiler to perform overload resolution across all
-  /// provided callables when the visitor is invoked.
-  using Ts::operator()...;
+namespace {
+class EscapeUsersAnalysis {
+public:
+  EscapeUsersAnalysis(const Function &F, OptimizationRemarkEmitter *const ORE,
+                      AliasAnalysis *const AA) noexcept
+      : F(F), ORE(ORE), AA(AA) {}
+
+  /// \brief Perform a specialized escape analysis for stack-allocated values.
+  ///
+  /// This method orchestrates the discovery of all local memory roots (allocas
+  /// and byval arguments) and tracks their usage through the function.
+  void trackAll() noexcept {
+    // The `byval` arguments are held by the local stack frame.
+    // We need to track both where they escape (or are captured) and where
+    // they are used.
+    //
+    // We are not interested in other kinds of arguments, such as `byref`,
+    // since they are not allocated on the local stack frame.
+    // If an argument is not `byval`, the caller is responsible for the
+    // argument's lifetime --- it is either allocated on the caller's stack
+    // frame or on the heap. Thus, we do not run the risk of overwriting
+    // the argument's value during a tail-call stack reuse.
+    //
+    // Note: Return values are not tracked as they are either passed via
+    // registers or handled by the caller.
+    for (const Argument &Arg : F.args()) {
+      if (Arg.hasByValAttr())
+        track(&Arg);
+    }
+    // The `alloca` instructions are held by the local stack frame.
+    // We track their transitive use-def chains to identify potential
+    // memory corruption during stack frame reuse.
+    for (auto &BB : F) {
+      for (auto &I : BB)
+        if (const AllocaInst *AI = dyn_cast<AllocaInst>(&I))
+          track(AI);
+    }
+
+    NumAllocaUsers += AllocaCallUsers.size();
+    NumEscapedInstructions += EscapedInstructions.size();
+  }
+
+private:
+  /// \brief Trace the use-def chain of a stack-root value.
+  ///
+  /// This initiates a Pointer Tracking phase to populate the AllocaUsers
+  /// and EscapedInstructions sets. Formally, this serves as an Abstract
+  /// Dataflow Integrity Check to ensure that stack frame reuse does not
+  /// violate memory safety for any instructions relying on local addresses.
+  void track(const Value *V) noexcept {
+    SmallVector<const Use *, 32> Worklist;
+    SmallPtrSet<const Use *, 32> Visited;
+
+    auto AddUsesToWorklist = [&](const Value *V) {
+      for (auto &U : V->uses()) {
+        if (!Visited.insert(&U).second)
+          continue;
+        Worklist.push_back(&U);
+      }
+    };
+
+    // Initialize the worklist with the uses of the given value.
+    AddUsesToWorklist(V);
+
+    while (!Worklist.empty()) {
+      const Use *U = Worklist.pop_back_val();
+      Instruction *I = cast<Instruction>(U->getUser());
+
+      switch (I->getOpcode()) {
+      case Instruction::Call:
+      case Instruction::Invoke: {
+        auto &CB = cast<CallBase>(*I);
+
+        // A 'byval' argument is not an escape point because the backend
+        // guarantees a bitwise copy of the data. The callee receives its
+        // own private copy on the stack, so it cannot access or capture
+        // the original alloca's address.
+        if (CB.isArgOperand(U) && CB.isByValArgument(CB.getArgOperandNo(U)))
+          continue;
+
+        // Register this call/invoke as a reachability boundary.
+        // Any function receiving a local pointer is a potential candidate
+        // for stack frame interference during Tail Call Optimization.
+        AllocaCallUsers.insert(&CB);
+
+        // Check for 'nocapture' attribute: this is a formal guarantee that
+        // the callee will not store the pointer in a location that outlives
+        // the call itself (e.g., globals or heap).
+        bool IsNocapture =
+            CB.isDataOperand(U) && CB.doesNotCapture(CB.getDataOperandNo(U));
+
+        if (IsNocapture)
+          continue;
+
+        // Even without 'nocapture', a call only escapes the pointer if it
+        // has side effects on memory. If the function is 'readonly' or
+        // 'readnone', it cannot leak the address to persistent storage.
+        if (!CB.onlyReadsMemory())
+          EscapedInstructions.insert(&CB);
+
+        break;
+      }
+      case Instruction::Load: {
+        // The result of a load is not alloca-derived, unless it's a load from
+        // an alloca that has otherwise escaped, but this is a local analysis.
+        // The escape point is already/will be tracked by the other
+        // cases if the alloca has escaped.
+        continue;
+      }
+      case Instruction::Store: {
+        if (U->getOperandNo() == 0)
+          EscapedInstructions.insert(I);
+        // Stores have no users to analyze because they don't produce a value.
+        continue;
+      }
+      case Instruction::BitCast:
+      case Instruction::GetElementPtr:
+      case Instruction::PHI:
+      case Instruction::Select:
+      case Instruction::AddrSpaceCast:
+        // TODO: Consider to add other Instructions
+        break;
+      default:
+        EscapedInstructions.insert(I);
+        break;
+      }
+      AddUsesToWorklist(I);
+    }
+  }
+
+  /// \brief Identify the set of call sites that access the local stack frame.
+  ///
+  /// This set represents the "External Reachability Frontier" of alloca
+  /// instructions. It contains all 'call' and 'invoke' instructions that
+  /// receive a pointer derived from a local stack root as an argument.
+  ///
+  /// Formally, this is a filtered transitive closure of the use-def chain,
+  /// capturing only the boundaries where local memory is passed to callees.
+  SmallPtrSet<Instruction *, 32> AllocaCallUsers;
+  /// \brief A set of instructions where the local stack pointer escapes.
+  ///
+  /// Once a local pointer is captured or stored in a way that escapes the
+  /// local scope, it is considered an escape point, and the stack frame
+  /// can no longer be safely optimized for tail calls.
+  SmallPtrSet<Instruction *, 32> EscapedInstructions;
+
+  const Function &F;
+  OptimizationRemarkEmitter *const ORE;
+  AliasAnalysis *const AA;
 };
-
-/// \brief Deduction guide for \c VariantVisitor.
-///
-/// This guide allows the compiler to deduce the template arguments \c Ts from
-/// the constructor arguments, enabling the instantiation of the visitor
-/// without explicit template parameters.
-///
-/// \example
-/// \code
-///   std::variant<int, float> V = 42;
-///   std::visit(VariantVisitor{
-///     [](int I) { /* handle int */ },
-///     [](float F) { /* handle float */ }
-///   }, V);
-/// \endcode
-template <class... Ts> VariantVisitor(Ts...) -> VariantVisitor<Ts...>;
 
 class TailCallMarker {
   const Function &F;
@@ -89,62 +212,46 @@ public:
                           AliasAnalysis *const AA) noexcept
       : F(F), ORE(ORE), AA(AA) {}
 
-  struct SingleCall {};
-  struct MultipleCalls {
-    uint8_t NumCalls;
-  };
-  enum class NotApplicable {
-    NoCalls = 0,
-    ReturnsTwice = 1,
-    EmptyFunction = 2,
-    NoReturnInsts = 3,
-  };
-  [[nodiscard]] static inline StringRef explain(NotApplicable Value) noexcept {
-    switch (Value) {
-    case NotApplicable::NoCalls:
-      return "No tail calls found";
-    case NotApplicable::ReturnsTwice:
-      return "Function calls a function that returns twice";
-    case NotApplicable::EmptyFunction:
-      return "Function is empty";
-    case NotApplicable::NoReturnInsts:
-      return "Function has no return instructions";
-    }
-    llvm_unreachable("Invalid NotApplicable value");
-  }
-
-  using Result = std::variant<SingleCall, MultipleCalls, NotApplicable>;
-
-  [[nodiscard]] Result markTailCalls() noexcept {
-    NumTailRecursionEliminatable = 0;
+  /// \brief Mark tail calls within the function and perform escape analysis.
+  ///
+  /// This method scans the function to identify calls that can be safely
+  /// marked with the 'tail' attribute.
+  ///
+  /// Note: LLVM's definition of a 'tail' call differs from the standard
+  /// functional programming definition. In LLVM, a 'tail' marker is a
+  /// guarantee that the callee does not access the caller's stack frame. This
+  /// allows the Backend to perform Sibling Call Optimization even for calls
+  /// that are not formally at the end of the function.
+  ///
+  /// For instance, the attribute set here is consumed by:
+  /// - SelectionDAGBuilder::LowerCallTo (SelectionDAGBuilder.cpp): Which
+  ///   translates the IR attribute into a 'isTailCall' flag for the CodeGen.
+  /// - X86TargetLowering::LowerCall (X86ISelLowering.cpp): Which performs the
+  ///   final architecture-specific eligibility check via
+  ///   IsEligibleForTailCallOptimization.
+  ///
+  /// \returns true if any calls were marked or any changes were made to the
+  /// IR.
+  [[nodiscard]] bool markTailCalls() noexcept {
+    NumCallsMarkedWithTailAttr = 0;
+    bool MadeChanges = false;
     if (F.empty()) {
-      return NotApplicable::EmptyFunction;
+      return MadeChanges;
     }
-
     // In the presence of `setjmp` or `longjmp`, tail call elimination is not
     // possible because the call stack frame must be preserved for non-local
     // jumps.
     if (F.callsFunctionThatReturnsTwice()) {
-      return NotApplicable::ReturnsTwice;
+      return MadeChanges;
     }
 
-    // Functions with no return instructions cannot have tail calls
-    bool hasReturn = false;
-    for (const BasicBlock &BB : F) {
-      if (isa<ReturnInst>(BB.getTerminator())) {
-        hasReturn = true;
-        break;
-      }
-    }
-    if (!hasReturn) {
-      return NotApplicable::NoReturnInsts;
-    }
+    EscapeUsersAnalysis EscapeUsersAnalysis(F, ORE, AA);
+    EscapeUsersAnalysis.trackAll();
 
-    // Implementation goes here
-    return NotApplicable::NoCalls;
+    return MadeChanges;
   }
 };
-;
+}; // namespace
 
 //===----------------------------------------------------------------------===//
 // TailRecursionElimination Pass Implementation
@@ -155,39 +262,13 @@ PreservedAnalyses TailRecursionElimination::runOnFunction(
     return PreservedAnalyses::all();
   }
 
-  TailCallMarker Marker(F, &ORE, &AA);
-  TailCallMarker::Result MarkerResult = Marker.markTailCalls();
+  bool MadeChange = false;
 
-  // Pattern match on analysis result with proper return handling
-  return std::visit(
-      VariantVisitor{
-          [&](TailCallMarker::NotApplicable NA) -> PreservedAnalyses {
-            LLVM_DEBUG(
-                dbgs()
-                << "Tail Recursion Elimination not applicable in function "
-                << "`" << F.getName() << "`"
-                << " because of: " << TailCallMarker::explain(NA) << "\n");
-            // Early return - no optimization possible
-            return PreservedAnalyses::all();
-          },
-          [&](TailCallMarker::SingleCall SC) -> PreservedAnalyses {
-            LLVM_DEBUG(dbgs() << "Found single tail call in function "
-                              << F.getName() << "\n");
-            // TODO: Implement single tail call optimization
-            llvm::errs()
-                << "Single tail call optimization not yet implemented\n";
-            return PreservedAnalyses::all();
-          },
-          [&](TailCallMarker::MultipleCalls MC) -> PreservedAnalyses {
-            LLVM_DEBUG(dbgs()
-                       << "Found " << static_cast<int>(MC.NumCalls)
-                       << " tail calls in function " << F.getName() << "\n");
-            // TODO: Implement multiple tail call optimization
-            llvm::errs()
-                << "Multiple tail call optimization not yet implemented\n";
-            return PreservedAnalyses::all();
-          }},
-      MarkerResult);
+  TailCallMarker Marker(F, &ORE, &AA);
+  MadeChange |= Marker.markTailCalls();
+
+  if (!MadeChange)
+    return PreservedAnalyses::all();
 }
 
 PreservedAnalyses TailRecursionElimination::run(Function &F,
